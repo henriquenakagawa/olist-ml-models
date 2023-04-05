@@ -1,59 +1,109 @@
 -- Databricks notebook source
-with tb_pagamento as (
-SELECT
+-- Databricks notebook source
+WITH tb_pedidos AS (
 
-  pag.*,
-  item.idVendedor
-  
-FROM silver.olist.pedido ped
+  SELECT 
+      DISTINCT 
+      t1.idPedido,
+      t2.idVendedor
 
-left join silver.olist.pagamento_pedido pag
-  on ped.idPedido = pag.idPedido
-  
-left join silver.olist.item_pedido item
-  on ped.idPedido = item.idPedido
+  FROM silver.olist.pedido AS t1
 
-where 1=1
-  and ped.dtPedido::date < '2018-01-01'
-  and ped.dtPedido::date >= add_months('2018-01-01', -6)
-  and item.idVendedor is not null
+  LEFT JOIN silver.olist.item_pedido as t2
+  ON t1.idPedido = t2.idPedido
+
+  WHERE t1.dtPedido < '2018-01-01'
+  AND t1.dtPedido >= add_months('2018-01-01', -6)
+  AND idVendedor IS NOT NULL
+
+),
+
+tb_join AS (
+
+  SELECT 
+        t1.idVendedor,
+        t2.*         
+
+  FROM tb_pedidos AS t1
+
+  LEFT JOIN silver.olist.pagamento_pedido AS t2
+  ON t1.idPedido = t2.idPedido
+
+),
+
+tb_group AS (
+
+  SELECT idVendedor,
+         descTipoPagamento,
+         count(distinct idPedido) as qtdePedidoMeioPagamento,
+         sum(vlPagamento) as vlPedidoMeioPagamento
+
+  FROM tb_join
+
+  GROUP BY idVendedor, descTipoPagamento
+  ORDER BY idVendedor, descTipoPagamento
+
+),
+
+tb_summary AS (
+
+  SELECT 
+    idVendedor,
+
+    sum(case when descTipoPagamento='boleto' then qtdePedidoMeioPagamento else 0 end) as qtde_boleto_pedido,
+    sum(case when descTipoPagamento='credit_card' then qtdePedidoMeioPagamento else 0 end) as qtde_credit_card_pedido,
+    sum(case when descTipoPagamento='voucher' then qtdePedidoMeioPagamento else 0 end) as qtde_voucher_pedido,
+    sum(case when descTipoPagamento='debit_card' then qtdePedidoMeioPagamento else 0 end) as qtde_debit_card_pedido,
+
+    sum(case when descTipoPagamento='boleto' then vlPedidoMeioPagamento else 0 end) as valor_boleto_pedido,
+    sum(case when descTipoPagamento='credit_card' then vlPedidoMeioPagamento else 0 end) as valor_credit_card_pedido,
+    sum(case when descTipoPagamento='voucher' then vlPedidoMeioPagamento else 0 end) as valor_voucher_pedido,
+    sum(case when descTipoPagamento='debit_card' then vlPedidoMeioPagamento else 0 end) as valor_debit_card_pedido,
+
+    sum(case when descTipoPagamento='boleto' then qtdePedidoMeioPagamento else 0 end) / sum(qtdePedidoMeioPagamento) as pct_qtd_boleto_pedido,
+    sum(case when descTipoPagamento='credit_card' then qtdePedidoMeioPagamento else 0 end) / sum(qtdePedidoMeioPagamento) as pct_qtd_credit_card_pedido,
+    sum(case when descTipoPagamento='voucher' then qtdePedidoMeioPagamento else 0 end) / sum(qtdePedidoMeioPagamento) as pct_qtd_voucher_pedido,
+    sum(case when descTipoPagamento='debit_card' then qtdePedidoMeioPagamento else 0 end) / sum(qtdePedidoMeioPagamento) as pct_qtd_debit_card_pedido,
+
+    sum(case when descTipoPagamento='boleto' then vlPedidoMeioPagamento else 0 end) / sum(vlPedidoMeioPagamento) as pct_valor_boleto_pedido,
+    sum(case when descTipoPagamento='credit_card' then vlPedidoMeioPagamento else 0 end) / sum(vlPedidoMeioPagamento) as pct_valor_credit_card_pedido,
+    sum(case when descTipoPagamento='voucher' then vlPedidoMeioPagamento else 0 end) / sum(vlPedidoMeioPagamento) as pct_valor_voucher_pedido,
+    sum(case when descTipoPagamento='debit_card' then vlPedidoMeioPagamento else 0 end) / sum(vlPedidoMeioPagamento) as pct_valor_debit_card_pedido
+
+  FROM tb_group
+
+  GROUP BY idVendedor
+
+),
+
+tb_cartao as (
+
+  SELECT idVendedor,
+         AVG(nrParcelas) AS avgQtdeParcelas,
+         PERCENTILE(nrParcelas, 0.5) AS medianQtdeParcelas,
+         MAX(nrParcelas) AS maxQtdeParcelas,
+         MIN(nrParcelas) AS minQtdeParcelas
+
+  FROM tb_join
+
+  WHERE descTipoPagamento = 'credit_card'
+
+  GROUP BY idVendedor
+
 )
-, tb_group as (
-SELECT
-  idVendedor,
-  descTipoPagamento,
-  count(distinct idPedido) as qtd_pedidos,
-  sum(vlPagamento) as valor_total
-FROM tb_pagamento
-group by 1, 2
-order by 1, 2
-)
 
-select
-  idVendedor,
-  
-  sum(case when descTipoPagamento = 'boleto' then qtd_pedidos else 0 end) as qtd_pedidos_boleto,
-  sum(case when descTipoPagamento = 'credit_card' then qtd_pedidos else 0 end) as qtd_pedidos_cc,
-  sum(case when descTipoPagamento = 'voucher' then qtd_pedidos else 0 end) as qtd_pedidos_voucher,
-  sum(case when descTipoPagamento = 'debit_card' then qtd_pedidos else 0 end) as qtd_pedidos_debit,
-  
-  sum(case when descTipoPagamento = 'boleto' then valor_total else 0 end) as valor_total_boleto,
-  sum(case when descTipoPagamento = 'credit_card' then valor_total else 0 end) as valor_total_cc,
-  sum(case when descTipoPagamento = 'voucher' then valor_total else 0 end) as valor_total_voucher,
-  sum(case when descTipoPagamento = 'debit_card' then valor_total else 0 end) as valor_total_debit,
-  
-  sum(case when descTipoPagamento = 'boleto' then qtd_pedidos else 0 end) / sum(qtd_pedidos) as pct_qtd_pedidos_boleto,
-  sum(case when descTipoPagamento = 'credit_card' then qtd_pedidos else 0 end)/ sum(qtd_pedidos) as pct_qtd_pedidos_cc,
-  sum(case when descTipoPagamento = 'voucher' then qtd_pedidos else 0 end)/ sum(qtd_pedidos) as pct_qtd_pedidos_voucher,
-  sum(case when descTipoPagamento = 'debit_card' then qtd_pedidos else 0 end)/ sum(qtd_pedidos) as pct_qtd_pedidos_debit,
-  
-  sum(case when descTipoPagamento = 'boleto' then valor_total else 0 end) / sum(valor_total) as pct_valor_total_boleto,
-  sum(case when descTipoPagamento = 'credit_card' then valor_total else 0 end) / sum(valor_total) as pct_valor_total_cc,
-  sum(case when descTipoPagamento = 'voucher' then valor_total else 0 end) / sum(valor_total) as pct_valor_total_voucher,
-  sum(case when descTipoPagamento = 'debit_card' then valor_total else 0 end) / sum(valor_total) as pct_valor_total_debit
-  
-from tb_group
-group by 1
+SELECT 
+       '2018-01-01' AS dtReference,
+       t1.*,
+       t2.avgQtdeParcelas,
+       t2.medianQtdeParcelas,
+       t2.maxQtdeParcelas,
+       t2.minQtdeParcelas
+
+FROM tb_summary as t1
+
+LEFT JOIN tb_cartao as t2
+ON t1.idVendedor = t2.idVendedor
 
 -- COMMAND ----------
 
