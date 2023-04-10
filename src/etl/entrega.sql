@@ -43,4 +43,8 @@ SELECT
        
 FROM tb_pedido
 
-GROUP BY 1
+GROUP BY 1, 2
+
+-- COMMAND ----------
+
+
